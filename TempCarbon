@@ -1,0 +1,208 @@
+# Diana Stubbe - Portfolio Project Week 8 - Option 1
+
+# Today's date
+Sys.Date()
+
+# Install packages from CRAN for the temp_carbon dataset, if necessary
+if(!require("dslabs")) install.packages("dslabs")
+if(!require("tidyverse")) install.packages("tidyverse")
+if(!require("ggrepel")) install.packages("ggrepel")
+if(!require("matrixStats")) install.packages("matrixStats")
+if(!require("dplyr")) install.packages("dplyr")
+if(!require("ggplot2")) install.packages("ggplot2")
+if(!require("RODBC")) install.packages("RODBC")
+
+# Load packages into the workspace
+library(dslabs)
+library(tidyverse)
+library(ggrepel)
+library(matrixStats)
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(lazyeval)
+library(RODBC)
+
+# Get mean for 0 values in temp_carbon data wrangling before the data is imported in a SQL Server table
+mean(c(0.01, -0.04)) # -0.015
+mean(c(-0.17, -0.03)) # -0.01
+mean(c(0.09, 0.12)) # 0.105
+mean(c(-0.01, -0.03)) # -0.02
+mean(c(-0.15, 0.05)) # -0.05
+
+# Today's date
+Sys.Date()
+
+# Export R built-in dataset to a comma delimited file to load into SQL Server Express 2017 (LAPTOP-SL3I1379\SQLEXPRESS)
+write.csv(temp_carbon, "temp_carbon.csv")
+
+# For the server, fixed backslash in the instance name and used "paste0" to generate the connection string
+server <- "LAPTOP-SL3I1379\\SQLEXPRESS"
+database <- "TempCarbon"
+connectionString <- paste0("Driver={SQL Server};server=",server,";database=",database,";trusted_connection=yes;")
+channel <-  odbcDriverConnect(connection=connectionString)
+
+# Add data to data set
+TempCarbonData <- sqlQuery(channel, "SELECT * FROM dbo.TempCarbon WHERE ISNUMERIC(TempAnomaly) = 1 AND YearRecorded < 2015 ORDER BY YearRecorded;")
+
+head(TempCarbonData) # View first six rows 
+tail(TempCarbonData) # View the last six rows
+summary(TempCarbonData) # View summmary
+
+plot(TempCarbonData) # Plot all variables
+
+str(TempCarbonData) # View structure
+
+# Add a regression line to the plot and graph the data in a plot and summarize the regression
+RegLine <-lm(TempCarbonData$OceanAnomaly ~ TempCarbonData$LandAnomaly, data = TempCarbonData)
+plot(TempCarbonData$OceanAnomaly ~ TempCarbonData$LandAnomaly,
+main="Ocean and Land Temperature anomalies", pch=19, col=c("blue","green"),
+xlab="Ocean Anomaly", ylab="Land Anomaly",
+xlim=c(-0.69, 1.5), ylim=c(-0.46, 0.79))
+abline(RegLine, col="red")
+summary(RegLine)
+
+# View Correlation Coefficients
+cor(TempCarbonData)
+
+# Add linear regression to the dataset and summarize the results
+TempLinearAll <-lm(TempCarbonData$TempAnomaly ~ ., data = TempCarbonData)
+summary(TempLinearAll)
+
+# View the 95% confidence interval
+confint(TempLinearAll, conf.level=0.95)
+
+# Two sample t-test
+t.test(TempCarbonData$LandAnomaly, TempCarbonData$OceanAnomaly, mu=0, 
+       alt="two.sided", conf=0.95, var.eq = TRUE, paired = F)
+
+# Independent t-test
+# Assumption 1: Samples are independent
+# Assumption 2: Samples are drawn from populations with equal variances
+# Assumption 3: Samples are drawn from populations with a normal distribution
+# If p-value < 0.05, we can reject the null hypothesis so cannot run t test since there are variances
+var.test(TempCarbonData$TempAnomaly,TempCarbonData$CarbonEmissions)
+
+# Normal quantile plots - no outliers
+qqnorm(TempCarbonData$TempAnomaly)
+qqline(TempCarbonData$TempAnomaly)
+
+# Normal quantile plots - no outliers
+qqnorm(TempCarbonData$CarbonEmissions)
+qqline(TempCarbonData$CarbonEmissions)
+
+# Compute t-test
+Results <- t.test(TempCarbonData$TempAnomaly,TempCarbonData$CarbonEmissions, data = TempCarbonData, paired = TRUE)
+Results
+
+# Use F-test to test for homogeneity in variances
+Results.ftest <- var.test(TempCarbonData$TempAnomaly,TempCarbonData$CarbonEmissions, data = TempCarbonData)
+Results.ftest
+
+# Line plot of annual global, land and ocean temperature anomalies since 1880
+TempCarbonData %>%
+        select(Year = YearRecorded, Temp = TempAnomaly, Land = LandAnomaly, Ocean = OceanAnomaly) %>%
+        gather(Region, Temp, Temp:Ocean) %>%
+        ggplot(aes(Year, Temp, col = Region)) +
+        geom_line(size = 1) +
+        geom_hline(aes(yintercept = 0), col = colorblind_palette[8], lty = 2) +
+        geom_label(aes(x = 2014, y = -.08), col = colorblind_palette[8],label = "Temp mean", size = 4) +
+        ylab("Temperature anomaly (degrees C)") +
+        xlim(c(1880, 2014)) +
+        scale_color_manual(values = colorblind_palette) +
+        ggtitle("Temperature anomaly relative to the mean from 1880-2014")
+# Line plot of carbon emissions since 1880
+TempCarbonData %>%
+        select(Year = YearRecorded, Emissions = CarbonEmissions) %>%
+        gather(Region, Emissions, Emissions) %>%
+        ggplot(aes(Year, Emissions, col = Region)) +
+        geom_line(size = 1) +
+        geom_hline(aes(yintercept = 0), col = colorblind_palette[8], lty = 2) +
+        geom_label(aes(x = 2014, y = 10000), col = colorblind_palette[8], label = "Mean", size = 4) +
+        ylab("Carbon Emmissions") +
+        xlim(c(1880, 2014)) +
+        scale_color_manual(values = colorblind_palette) +
+        ggtitle("Carbon Emissions mean from 1880-2014")
+
+# Loading caTools library
+library("caTools") 
+#  Set seed to ensure same random numbers generated
+set.seed(123)   
+# Splits the data in the ratio mentioned in SplitRatio 
+# After splitting marks these rows as logical TRUE and
+# the the remaining are marked as logical FALSE
+sample <- sample.split(TempCarbonData,SplitRatio = 0.75) 
+# Creates a training dataset named trainingData 
+# with rows which are marked as TRUE
+trainingData <- subset(TempCarbonData,sample ==TRUE)
+# Creates a training dataset named trainingData 
+# with rows which are marked as TRUE
+testingData <- subset(TempCarbonData, sample==FALSE)
+# Run T-Test
+t.test(trainingData, testingData, mu=0, 
+       alt="two.sided", conf=0.95, var.eq = TRUE, paired = F)
+
+# View first six rows for training and testing data
+head(trainingData)
+head(testingData)
+
+# View scatter plot (slow)
+plot(trainingData)
+plot(testingData)
+
+# View summary
+summary(trainingData)
+summary(testingData)
+
+# Get the standard deviation
+sd(trainingData$TempAnomaly)
+sd(testingData$TempAnomaly)
+
+# View correlation
+cor(trainingData)
+cor(testingData)
+
+# Get the mean
+mean(trainingData$TempAnomaly)
+mean(testingData$TempAnomaly)
+
+# Get the median
+median(trainingData$TempAnomaly)
+median(testingData$TempAnomaly)
+
+# Get the square root
+sqrt(var(trainingData$TempAnomaly))
+sqrt(var(testingData$TempAnomaly))
+
+# Get the minimum
+min(trainingData$TempAnomaly)
+min(testingData$TempAnomaly)
+
+# Get the maximum
+max(trainingData$TempAnomaly)
+max(testingData$TempAnomaly)
+
+# Run t test
+t.test(trainingData, testingData)
+
+# For graphing purposes, the line below avoids scientific notation
+options(scipen = 800000)
+
+# Generate histograms for training and testing data
+par(mfrow=c(1,2))
+hist(trainingData$YearRecorded, 
+     col="green", 
+     ylim = c(-1, 1), 
+     xlim = c(0, 2015), 
+     cex.main=1,
+     ylab = "Training - Emissions",
+     xlab = "Training - Year")
+hist(testingData$CarbonEmissions, 
+     col="blue", 
+     ylim = c(0, 10), 
+     xlim = c(0, 10000), 
+     cex.main=1,
+     ylab = "Testing - Emissions", 
+     xlab = "Testing - Year")
+
+
